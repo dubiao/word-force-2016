@@ -17,7 +17,7 @@ export class MainMenu extends Scene {
 
     // 游戏标题
     this.add
-      .text(width / 2, height / 2 - 100, '飞机打单词', {
+      .text(width / 2, height / 2 - 100, '飞机打飞机', {
         fontFamily: 'Arial Black',
         fontSize: 52,
         color: '#00eaff',
@@ -58,6 +58,34 @@ export class MainMenu extends Scene {
     btnBg.on('pointerdown', () => {
       console.log('开始游戏按钮被点击');
       this.scene.start('Game');
+    });
+
+    // ---- 排行榜按钮 ----
+    const rankBtn = this.add
+      .rectangle(width / 2, height / 2 + 140, 220, 50, 0x1a3a5a)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(100);
+
+    const rankText = this.add
+      .text(width / 2, height / 2 + 140, '排行榜', {
+        fontFamily: 'Arial Black',
+        fontSize: 22,
+        color: '#88ccff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(101);
+
+    rankBtn.on('pointerover', () => {
+      rankBtn.setFillStyle(0x2a5a8a);
+      rankText.setStyle({ color: '#aaeeff' });
+    });
+    rankBtn.on('pointerout', () => {
+      rankBtn.setFillStyle(0x1a3a5a);
+      rankText.setStyle({ color: '#88ccff' });
+    });
+    rankBtn.on('pointerdown', () => {
+      this.scene.start('Leaderboard', { score: 0 });
     });
 
     EventBus.emit('current-scene-ready', this);

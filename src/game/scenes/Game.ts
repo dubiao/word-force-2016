@@ -1,5 +1,6 @@
 import { EventBus } from '../EventBus';
 import { Scene, GameObjects, Math as PMath } from 'phaser';
+import { tryInsertScore, checkRank } from '../storage';
 
 // ============================================================
 //  Enemy 类 —— 敌机实体，后续可独立拆文件
@@ -329,7 +330,19 @@ export class Game extends Scene {
     // 清理所有敌机子弹，避免残留
     for (const eb of this.enemyBullets) eb.destroy();
     this.enemyBullets = [];
-    this.scene.start('GameOver', { score: this.score });
+
+    // 停掉过渡页，避免其键盘监听器干扰后续场景
+    this.scene.stop('GameOver');
+
+    // 检查是否进入前5名（不写入，只检查）
+    const rank = checkRank(this.score);
+    if (rank !== null) {
+      // 进了前5 → 跳转名字输入页
+      this.scene.start('NameEntry', { score: this.score, rank });
+    } else {
+      // 没进前5 → 直接跳转排行榜
+      this.scene.start('Leaderboard', { score: this.score });
+    }
   }
 
   // ---- 爆炸效果（粒子用色块模拟）----
