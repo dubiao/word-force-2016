@@ -11,7 +11,12 @@ export class Enemy {
   speed: number; // px/s，向下飞行速度
   width: number = 44;
   height: number = 32;
+  hitWidth: number = 36;  // 包含翅膀的碰撞半宽（机身22 + 翅膀偏移5 + 翅膀半宽9）
   alive: boolean = true;
+
+  // 射击冷却（各敌机独立，初始随机错开）
+  shootCooldown: number;
+  private readonly shootInterval = 3000; // ms，约 3 秒一发
 
   // 血条显示
   private hpBarBg: GameObjects.Rectangle;
@@ -25,6 +30,8 @@ export class Enemy {
     this.hp = hp;
     this.maxHp = hp;
     this.speed = speed;
+    // 初始冷却随机错开，避免所有敌机同时开火
+    this.shootCooldown = PMath.Between(1000, 3000);
 
     // ---- 机身（红色色块组合，朝下飞）----
     const body = scene.add.rectangle(0, 0, this.width, this.height, 0xff4444);
@@ -73,10 +80,19 @@ export class Enemy {
     return false;
   }
 
-  /** 每帧移动 */
-  update(dt: number) {
-    if (!this.alive) return;
+  /** 每帧移动，返回 true 表示本帧需要开火 */
+  update(dt: number): boolean {
+    if (!this.alive) return false;
     this.container.y += this.speed * dt;
+    // 只有进入屏幕后才开始计时射击（y > 0）
+    if (this.container.y > 0) {
+      this.shootCooldown -= dt * 1000;
+      if (this.shootCooldown <= 0) {
+        this.shootCooldown = this.shootInterval + PMath.Between(-500, 500); // ±0.5s 随机抖动
+        return true;
+      }
+    }
+    return false;
   }
 
   /** 销毁对象（正常移出屏幕 / 被消灭后调用） */
@@ -114,24 +130,37 @@ export class Game extends Scene {
   // 玩家飞机
   plane: GameObjects.Container;
   planeX: number = 512;
-  readonly planeY: number = 700;
+  planeY: number = 700;
   readonly planeSpeed: number = 400;
   readonly planeWidth: number = 48;
   readonly planeHeight: number = 36;
 
-  // 子弹
+  // 子弹（玩家）
   bullets: GameObjects.Rectangle[] = [];
   readonly bulletSpeed: number = 600;
   bulletCooldown: number = 0;
   readonly bulletCooldownTime: number = 100;
 
+  // 敌机子弹
+  enemyBullets: GameObjects.Rectangle[] = [];
+  readonly enemyBulletSpeed: number = 220;
+
   // 敌机
   enemies: Enemy[] = [];
-  private nextSpawnDelay: number = 0; // 距离下次生成的倒计时 ms
+  private nextSpawnDelay: number = 1500; // 距离下次生成的倒计时 ms（初始给1.5s缓冲）
 
   // 得分
   score: number = 0;
   private scoreText!: GameObjects.Text;
+
+  // 玩家血量
+  readonly playerMaxHp: number = 20;
+  playerHp: number = 20;
+  private hpLabel!: GameObjects.Text;
+  private hpBarBg!: GameObjects.Rectangle;
+  private hpBarFill!: GameObjects.Rectangle;
+  private readonly hpBarW: number = 150;
+  private readonly hpBarH: number = 15;
 
   // 输入
   cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
@@ -141,10 +170,23 @@ export class Game extends Scene {
   }
 
   create() {
+    // ---- 清理上一局残留（防止重开时隐形敌机/子弹）----
+    for (const e of this.enemies) e.destroy();
+    this.enemies = [];
+    for (const b of this.bullets) b.destroy();
+    this.bullets = [];
+    for (const eb of this.enemyBullets) eb.destroy();
+    this.enemyBullets = [];
+    this.score = 0;
+    this.playerHp = this.playerMaxHp;
+
     const { width, height } = this.scale;
 
     this.camera = this.cameras.main;
     this.camera.setBackgroundColor(0x0a0a2e);
+
+    // 根据屏幕高度动态计算玩家飞机的 Y 坐标，避免跑出屏幕底部
+    this.planeY = height - 50;
 
     // ---- 星空背景 ----
     const starGfx = this.add.graphics();
@@ -181,6 +223,36 @@ export class Game extends Scene {
       })
       .setDepth(20);
 
+    // ---- 玩家血条（最右边）----
+    this.playerHp = this.playerMaxHp;
+    const barRight = width - 16;
+    const barY = 16;
+
+    // 血量文字（右对齐，放在血条左边）
+    this.hpLabel = this.add
+      .text(0, 16, `HP: ${this.playerHp}/${this.playerMaxHp}`, {
+        fontFamily: 'Arial',
+        fontSize: 20,
+        color: '#ff6666',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(20);
+
+    const barCenterX = barRight - this.hpBarW / 2;
+    this.hpBarBg = this.add
+      .rectangle(barCenterX, barY, this.hpBarW, this.hpBarH, 0x440000)
+      .setDepth(20);
+    this.hpBarFill = this.add
+      .rectangle(barCenterX - this.hpBarW / 2, barY, this.hpBarW, this.hpBarH, 0x00ff44)
+      .setOrigin(0, 0.5)
+      .setDepth(20);
+    this.hpBarBg.setStrokeStyle(1, 0x888888);
+
+    // 文字右边缘对齐到血条左边缘左侧 8px
+    this.hpLabel.x = barCenterX - this.hpBarW / 2 - 8;
+
     // ---- 键盘输入 ----
     this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
 
@@ -199,8 +271,9 @@ export class Game extends Scene {
       this.fireBullet();
     });
 
-    // ---- 初始化第一次敌机生成计时 ----
-    this._resetSpawnTimer();
+    // ---- 初始化敌机生成 ----
+    this._spawnEnemy(); // 立即生成第一架敌机
+    this._resetSpawnTimer(); // 后续按正常间隔生成
 
     EventBus.emit('current-scene-ready', this);
   }
@@ -220,8 +293,8 @@ export class Game extends Scene {
   // ---- 生成一架敌机 ----
   private _spawnEnemy() {
     const { width } = this.scale;
-    const x = PMath.Between(30, width - 30);
-    const speed = PMath.Between(80, 200); // 速度各不相同
+    const x = PMath.Between(40, width - 40);
+    const speed = PMath.Between(40, 120); // 速度各不相同
     const hp = 10; // 以后改成动态
     const enemy = new Enemy(this, x, -40, hp, speed);
     this.enemies.push(enemy);
@@ -230,6 +303,33 @@ export class Game extends Scene {
   // ---- 重置生成计时（2～5 秒随机）----
   private _resetSpawnTimer() {
     this.nextSpawnDelay = PMath.Between(1000, 5000);
+  }
+
+  // ---- 玩家扣血 ----
+  private _takePlayerDamage(dmg: number) {
+    this.playerHp -= dmg;
+    if (this.playerHp < 0) this.playerHp = 0;
+    this._updateHpBar();
+    if (this.playerHp <= 0) {
+      this._gameOver();
+    }
+  }
+
+  // ---- 更新玩家血条显示 ----
+  private _updateHpBar() {
+    const ratio = PMath.Clamp(this.playerHp / this.playerMaxHp, 0, 1);
+    this.hpBarFill.width = this.hpBarW * ratio;
+    const color = ratio > 0.5 ? 0x00ff44 : ratio > 0.25 ? 0xffee00 : 0xff3300;
+    this.hpBarFill.setFillStyle(color);
+    this.hpLabel.setText(`HP: ${this.playerHp}/${this.playerMaxHp}`);
+  }
+
+  // ---- 游戏结束 ----
+  private _gameOver() {
+    // 清理所有敌机子弹，避免残留
+    for (const eb of this.enemyBullets) eb.destroy();
+    this.enemyBullets = [];
+    this.scene.start('GameOver', { score: this.score });
   }
 
   // ---- 爆炸效果（粒子用色块模拟）----
@@ -259,12 +359,13 @@ export class Game extends Scene {
   private _checkBulletEnemyCollision() {
     for (let bi = this.bullets.length - 1; bi >= 0; bi--) {
       const b = this.bullets[bi];
+      if (!b || !b.active) continue;  // 已被 _checkBulletBulletCollision 销毁则跳过
       for (let ei = this.enemies.length - 1; ei >= 0; ei--) {
         const e = this.enemies[ei];
         if (!e.alive) continue;
 
-        // 子弹中心 vs 敌机 AABB
-        const halfW = e.width / 2 + 3;
+        // 子弹中心 vs 敌机 AABB（含翅膀宽度）
+        const halfW = e.hitWidth;
         const halfH = e.height / 2 + 9;
         if (Math.abs(b.x - e.x) < halfW && Math.abs(b.y - e.y) < halfH) {
           // 子弹命中
@@ -280,6 +381,27 @@ export class Game extends Scene {
             this.scoreText.setText(`Score: ${this.score}`);
           }
           break; // 一颗子弹只命中一个敌机
+        }
+      }
+    }
+  }
+
+  // ---- 玩家子弹 vs 敌机子弹碰撞（互相抵消）----
+  private _checkBulletBulletCollision() {
+    for (let bi = this.bullets.length - 1; bi >= 0; bi--) {
+      const b = this.bullets[bi];
+      if (!b || !b.active) continue;  // 已被其他碰撞销毁则跳过
+      for (let ei = this.enemyBullets.length - 1; ei >= 0; ei--) {
+        const eb = this.enemyBullets[ei];
+        if (!eb || !eb.active) continue;
+        // AABB 碰撞（玩家子弹 ~6px宽，敌机子弹 ~5px宽）
+        if (Math.abs(b.x - eb.x) < 5.5 && Math.abs(b.y - eb.y) < 16) {
+          b.destroy();
+          this.bullets.splice(bi, 1);
+          // splice 后 for 循环的 bi-- 会自动指向下一个有效索引，无需手动调整
+          eb.destroy();
+          this.enemyBullets.splice(ei, 1);
+          break; // 一颗玩家子弹只能抵消一颗敌机子弹
         }
       }
     }
@@ -318,21 +440,53 @@ export class Game extends Scene {
       this._resetSpawnTimer();
     }
 
-    // ---- 敌机移动 & 出界销毁 ----
+    // ---- 敌机移动 & 出界销毁 & 开火 ----
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
-      e.update(dt);
+      const shouldFire = e.update(dt);
+      if (shouldFire) {
+        // 从敌机机头位置发射子弹（机头在机身下方）
+        const eb = this.add
+          .rectangle(e.x, e.y + e.height / 2 + 14, 5, 14, 0xff4400)
+          .setDepth(9);
+        this.enemyBullets.push(eb);
+      }
       if (e.y > height + 60) {
+        this._takePlayerDamage(1); // 漏掉敌机，扣一滴血
         e.destroy();
         this.enemies.splice(i, 1);
       }
     }
-    if (this.enemies.length === 0) {
-      console.log(new Date().toLocaleString(), 'no enemy left, spawn one');
-      this._spawnEnemy();
+
+    // ---- 敌机子弹移动 & 命中玩家 ----
+    const planeHalfW = this.planeWidth / 2 + 6;  // 含机翼
+    const planeHalfH = this.planeHeight / 2 + 14; // 含机头
+    for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
+      const eb = this.enemyBullets[i];
+      if (!eb || !eb.active) {
+        this.enemyBullets.splice(i, 1);
+        continue;
+      }
+      eb.y += this.enemyBulletSpeed * dt;
+      // 飞出屏幕销毁
+      if (eb.y > height + 20) {
+        eb.destroy();
+        this.enemyBullets.splice(i, 1);
+        continue;
+      }
+      // 命中玩家
+      if (
+        Math.abs(eb.x - this.planeX) < planeHalfW &&
+        Math.abs(eb.y - this.planeY) < planeHalfH
+      ) {
+        eb.destroy();
+        this.enemyBullets.splice(i, 1);
+        this._takePlayerDamage(1);
+      }
     }
 
     // ---- 碰撞检测 ----
+    this._checkBulletBulletCollision();  // 先抵消子弹，再处理其他碰撞
     this._checkBulletEnemyCollision();
   }
 
