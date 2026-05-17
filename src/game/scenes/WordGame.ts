@@ -1,5 +1,5 @@
-import { Scene, GameObjects, Math as PMath } from 'phaser';
-import { checkRank, tryInsertScore } from '../storage';
+import { Scene, GameObjects, Math as PMath, Physics } from 'phaser';
+import { checkRank } from '../storage';
 
 // ============================================================
 //  WordEnemy —— 带单词标签的敌机
@@ -14,6 +14,8 @@ interface WordEnemy {
   alive: boolean;
   hitWidth: number;
   height: number;
+  // 上一次 update 时的 Y 坐标，用于扫描碰撞
+  prevY: number;
 }
 
 // 字母子弹
@@ -21,6 +23,8 @@ interface LetterBullet {
   obj: GameObjects.Text;
   letter: string;
   active: boolean;
+  // 上一次 update 时的 Y 坐标，用于扫描碰撞
+  prevY: number;
 }
 
 // ============================================================
@@ -69,7 +73,6 @@ export class WordGame extends Scene {
 
   // ---- 资源加载（此场景自己加载 words.txt）----
   preload() {
-    // 若 Preloader 已经加载过则跳过（cache.text 会有）
     if (!this.cache.text.has('words')) {
       this.load.text('words', 'assets/words.txt');
     }
@@ -87,7 +90,7 @@ export class WordGame extends Scene {
     this.playerHp = this.playerMaxHp;
 
     const { width, height } = this.scale;
-    this.planeY = height - 100;
+    this.planeY = height - 80;
     this.planeX = width / 2;
 
     this.cameras.main.setBackgroundColor(0x05050f);
@@ -173,7 +176,6 @@ export class WordGame extends Scene {
   private _loadWordPool() {
     const raw = this.cache.text.get('words') as string | undefined;
     if (!raw) {
-      // fallback：内置最小词表
       this.wordPool = ['cat', 'dog', 'fly', 'sky', 'sun', 'gun', 'war', 'jet', 'ace', 'win'];
       return;
     }
@@ -215,7 +217,7 @@ export class WordGame extends Scene {
       const lt = this.add.text(lx, eH / 2 + 20, ch.toUpperCase(), {
         fontFamily: 'Arial Black',
         fontSize: 13,
-        color: '#ffff00',   // 全部黄色，等待击中
+        color: '#ffff00',
         stroke: '#333300',
         strokeThickness: 2,
       }).setOrigin(0.5, 0);
@@ -238,6 +240,7 @@ export class WordGame extends Scene {
       alive: true,
       hitWidth: 36,
       height: eH,
+      prevY: -40,
     };
     this.enemies.push(enemy);
   }
@@ -276,14 +279,36 @@ export class WordGame extends Scene {
       strokeThickness: 3,
     }).setOrigin(0.5).setDepth(11);
 
-    this.letterBullets.push({ obj, letter, active: true });
+    this.letterBullets.push({ obj, letter, active: true, prevY: by });
   }
 
-  // ---- 碰撞检测：字母子弹 vs 敌机 ----
+  // ---- 判断线段 AB（子弹）和矩形是否相交（用于扫描碰撞）----
+  // 返回 true 如果子弹从 prevY 移动到 curY 的过程中经过了机身矩形
+  private _segmentHitsRect(bx: number, prevY: number, curY: number, ex: number, ey: number, hw: number, hh: number): boolean {
+    // 子弹水平位置在机身水平范围内
+    if (Math.abs(bx - ex) > hw) return false;
+
+    const top = ey - hh;       // 机身顶边
+    const bottom = ey + hh;     // 机身底边
+
+    // 子弹当前位置和上一帧位置
+    const bTop = Math.min(prevY, curY);
+    const bBottom = Math.max(prevY, curY);
+
+    // AABB 包围盒检测：两个线段在 Y 轴上有重叠
+    return bBottom >= top && bTop <= bottom;
+  }
+
+  // ---- 碰撞检测：扫描式碰撞 ----
+  // 子弹只有在字母匹配 + 线段经过机身时才消失；否则完全穿透
   private _checkLetterCollision() {
     for (let bi = this.letterBullets.length - 1; bi >= 0; bi--) {
       const b = this.letterBullets[bi];
       if (!b.active) continue;
+
+      const bx = b.obj.x;
+      const curY = b.obj.y;
+      const prevY = b.prevY;
 
       for (let ei = this.enemies.length - 1; ei >= 0; ei--) {
         const e = this.enemies[ei];
@@ -291,40 +316,68 @@ export class WordGame extends Scene {
 
         const ex = e.container.x;
         const ey = e.container.y;
-        const bx = b.obj.x;
-        const by = b.obj.y;
+        const ePrevY = e.prevY; // 敌机上一帧 Y
 
-        // AABB 碰撞检测
-        if (Math.abs(bx - ex) < e.hitWidth && Math.abs(by - ey) < e.height / 2 + 30) {
-          // 检查字母是否匹配
-          const targetLetter = e.word[e.nextLetterIdx];
-          if (b.letter === targetLetter) {
-            // 匹配：消掉该字母，子弹销毁
-            e.nextLetterIdx++;
-            this._highlightLetter(e.letterTexts, e.nextLetterIdx);
-            this.score += 10;
-            this.scoreText.setText(`Score: ${this.score}`);
+        // 第一步：检查字母是否匹配
+        const targetLetter = e.word[e.nextLetterIdx];
+        if (b.letter !== targetLetter) continue;
 
-            // 销毁子弹
-            b.obj.destroy();
-            b.active = false;
-            this.letterBullets.splice(bi, 1);
+        // 第二步：检查子弹是否在字母文字的水平范围内
+        if (Math.abs(bx - ex) > e.hitWidth + 28) continue;
 
-            // 单词全部击完 → 爆炸
-            if (e.nextLetterIdx >= e.word.length) {
-              this._explode(ex, ey);
-              this._destroyEnemy(e);
-              this.enemies.splice(ei, 1);
-              this.score += 50; // 完整单词奖励
-              this.scoreText.setText(`Score: ${this.score}`);
-            }
+        // 第三步：扫描碰撞——检查子弹或敌机的移动线段是否经过机身
+        const bulletHWHit = Math.abs(bx - ex) < e.hitWidth;
+        const bodyHH = e.height / 2;
+        const bulletTop = Math.min(prevY, curY);
+        const bulletBottom = Math.max(prevY, curY);
+        const bodyTop = Math.min(ePrevY, ey) - bodyHH;
+        const bodyBottom = Math.max(ePrevY, ey) + bodyHH;
 
-            break; // 子弹已销毁，跳出内层循环
-          }
-          // 不匹配：子弹穿透，继续检查下一架敌机
+        const sweptBodyHit = bulletBottom >= bodyTop && bulletTop <= bodyBottom;
+        const directBodyHit = bulletHWHit && sweptBodyHit;
+
+        if (!directBodyHit) {
+          // 字母匹配但子弹还没碰到机身 → 穿透，继续飞
+          continue;
         }
+
+        // ---- 命中！----
+        b.obj.destroy();
+        b.active = false;
+        this.letterBullets.splice(bi, 1);
+
+        this._flashEnemyRed(e);
+        e.nextLetterIdx++;
+        this._highlightLetter(e.letterTexts, e.nextLetterIdx);
+        this.score += 10;
+        this.scoreText.setText(`Score: ${this.score}`);
+
+        if (e.nextLetterIdx >= e.word.length) {
+          this._explode(ex, ey);
+          this._destroyEnemy(e);
+          this.enemies.splice(ei, 1);
+          this.score += 50;
+          this.scoreText.setText(`Score: ${this.score}`);
+        }
+
+        break; // 子弹已销毁，跳出敌机循环
       }
     }
+  }
+
+  // ---- 敌机闪红效果 ----
+  private _flashEnemyRed(e: WordEnemy) {
+    const flash = this.add.rectangle(0, 0, e.hitWidth * 2 + 10, e.height * 2 + 10, 0xff4444, 0.85).setDepth(9);
+    e.container.add(flash);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 280,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        flash.destroy();
+      },
+    });
   }
 
   // ---- 销毁敌机 ----
@@ -396,10 +449,11 @@ export class WordGame extends Scene {
     this.planeX = PMath.Clamp(this.planeX, this.planeWidth / 2, width - this.planeWidth / 2);
     this.plane.x = this.planeX;
 
-    // 字母子弹移动
+    // 字母子弹移动，同时记录上一帧位置
     for (let i = this.letterBullets.length - 1; i >= 0; i--) {
       const b = this.letterBullets[i];
       if (!b.active) { this.letterBullets.splice(i, 1); continue; }
+      b.prevY = b.obj.y;
       b.obj.y -= this.bulletSpeed * dt;
       if (b.obj.y < -30) {
         b.obj.destroy();
@@ -415,10 +469,11 @@ export class WordGame extends Scene {
       this.nextSpawnDelay = PMath.Between(2000, 5000);
     }
 
-    // 敌机移动 & 出界
+    // 敌机移动 & 出界，同时记录上一帧位置
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.alive) { this.enemies.splice(i, 1); continue; }
+      e.prevY = e.container.y;
       e.container.y += e.speed * dt;
       if (e.container.y > height + 60) {
         this._takePlayerDamage(1);
