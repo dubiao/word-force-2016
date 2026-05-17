@@ -4,6 +4,7 @@ import { Game as MainGame } from './scenes/Game';
 import { MainMenu } from './scenes/MainMenu';
 import { NameEntry } from './scenes/NameEntry';
 import { Leaderboard } from './scenes/Leaderboard';
+import { WordGame } from './scenes/WordGame';
 import { AUTO, Game } from 'phaser';
 import { Preloader } from './scenes/Preloader';
 
@@ -25,7 +26,8 @@ const config: Phaser.Types.Core.GameConfig = {
         MainGame,
         GameOver,
         NameEntry,
-        Leaderboard
+        Leaderboard,
+        WordGame
     ]
 };
 

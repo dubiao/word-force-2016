@@ -30,12 +30,12 @@ export class MainMenu extends Scene {
 
     // 开始游戏按钮
     const btnBg = this.add
-      .rectangle(width / 2, height / 2 + 60, 220, 60, 0x1a6aff)
+      .rectangle(width / 2, height / 2 + 20, 220, 60, 0x1a6aff)
       .setInteractive({ useHandCursor: true })
       .setDepth(100);
 
     const btnText = this.add
-      .text(width / 2, height / 2 + 60, '开始游戏', {
+      .text(width / 2, height / 2 + 20, '普通模式', {
         fontFamily: 'Arial Black',
         fontSize: 28,
         color: '#ffffff',
@@ -60,14 +60,42 @@ export class MainMenu extends Scene {
       this.scene.start('Game');
     });
 
+    // ---- 单词模式按钮 ----
+    const wordBtn = this.add
+      .rectangle(width / 2, height / 2 + 100, 220, 60, 0x1a5a1a)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(100);
+
+    const wordBtnText = this.add
+      .text(width / 2, height / 2 + 100, '单词模式', {
+        fontFamily: 'Arial Black',
+        fontSize: 28,
+        color: '#88ffaa',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(101);
+
+    wordBtn.on('pointerover', () => {
+      wordBtn.setFillStyle(0x2a8a2a);
+      wordBtnText.setStyle({ color: '#ccffcc' });
+    });
+    wordBtn.on('pointerout', () => {
+      wordBtn.setFillStyle(0x1a5a1a);
+      wordBtnText.setStyle({ color: '#88ffaa' });
+    });
+    wordBtn.on('pointerdown', () => {
+      this.scene.start('WordGame');
+    });
+
     // ---- 排行榜按钮 ----
     const rankBtn = this.add
-      .rectangle(width / 2, height / 2 + 140, 220, 50, 0x1a3a5a)
+      .rectangle(width / 2, height / 2 + 180, 220, 50, 0x1a3a5a)
       .setInteractive({ useHandCursor: true })
       .setDepth(100);
 
     const rankText = this.add
-      .text(width / 2, height / 2 + 140, '排行榜', {
+      .text(width / 2, height / 2 + 180, '排行榜', {
         fontFamily: 'Arial Black',
         fontSize: 22,
         color: '#88ccff',
