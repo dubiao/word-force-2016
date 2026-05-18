@@ -349,15 +349,16 @@ export class WordGame extends Scene {
         this._flashEnemyRed(e);
         e.nextLetterIdx++;
         this._highlightLetter(e.letterTexts, e.nextLetterIdx);
-        this.score += 10;
-        this.scoreText.setText(`Score: ${this.score}`);
+        // this.score += 1; // 命中一个字母得分
+        // this.scoreText.setText(`Score: ${this.score}`);
 
         if (e.nextLetterIdx >= e.word.length) {
+          // 消灭敌机：得分 = 单词字母数 × 10
+          this.score += e.word.length * 10;
+          this.scoreText.setText(`Score: ${this.score}`);
           this._explode(ex, ey);
           this._destroyEnemy(e);
           this.enemies.splice(ei, 1);
-          this.score += 50;
-          this.scoreText.setText(`Score: ${this.score}`);
         }
 
         break; // 子弹已销毁，跳出敌机循环
