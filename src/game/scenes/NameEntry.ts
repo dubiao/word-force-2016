@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import { tryInsertScore } from '../storage';
+import { GameMode, tryInsertScore } from '../storage';
 
 export class NameEntry extends Scene {
   constructor() {
@@ -8,8 +8,10 @@ export class NameEntry extends Scene {
 
   create() {
     const { width, height } = this.scale;
-    const score = (this.scene.settings as any).data?.score ?? 0;
-    const rank = (this.scene.settings as any).data?.rank ?? 0;
+    const data = (this.scene.settings as any).data ?? {};
+    const score: number = data.score ?? 0;
+    const rank: number = data.rank ?? 0;
+    const mode: GameMode = data.mode ?? 'normal';
 
     this.cameras.main.setBackgroundColor(0x0a0a2e);
 
@@ -102,8 +104,8 @@ export class NameEntry extends Scene {
         return;
       }
       submitted = true;
-      tryInsertScore(el.value.trim(), score);
-      this.scene.start('Leaderboard', { score, rank });
+      tryInsertScore(el.value.trim(), score, mode);
+      this.scene.start('Leaderboard', { score, mode });
     };
 
     btnEl.addEventListener('click', submit);

@@ -1,6 +1,7 @@
 import { EventBus } from '../EventBus';
 import { Scene, GameObjects, Math as PMath } from 'phaser';
-import { tryInsertScore, checkRank } from '../storage';
+import { checkRank } from '../storage';
+const MODE: 'normal' = 'normal';
 
 // ============================================================
 //  Enemy 类 —— 敌机实体，后续可独立拆文件
@@ -155,8 +156,8 @@ export class Game extends Scene {
   private scoreText!: GameObjects.Text;
 
   // 玩家血量
-  readonly playerMaxHp: number = 20;
-  playerHp: number = 20;
+  readonly playerMaxHp: number = 10;
+  playerHp: number = 10;
   private hpLabel!: GameObjects.Text;
   private hpBarBg!: GameObjects.Rectangle;
   private hpBarFill!: GameObjects.Rectangle;
@@ -335,13 +336,13 @@ export class Game extends Scene {
     this.scene.stop('GameOver');
 
     // 检查是否进入前5名（不写入，只检查）
-    const rank = checkRank(this.score);
+    const rank = checkRank(this.score, MODE);
     if (rank !== null) {
       // 进了前5 → 跳转名字输入页
-      this.scene.start('NameEntry', { score: this.score, rank });
+      this.scene.start('NameEntry', { score: this.score, rank, mode: MODE });
     } else {
       // 没进前5 → 直接跳转排行榜
-      this.scene.start('Leaderboard', { score: this.score });
+      this.scene.start('Leaderboard', { score: this.score, mode: MODE });
     }
   }
 
@@ -390,7 +391,7 @@ export class Game extends Scene {
             this._explode(e.x, e.y);
             e.destroy();
             this.enemies.splice(ei, 1);
-            this.score += 100;
+            this.score += 10;
             this.scoreText.setText(`Score: ${this.score}`);
           }
           break; // 一颗子弹只命中一个敌机

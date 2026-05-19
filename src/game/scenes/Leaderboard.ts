@@ -1,13 +1,10 @@
 import { Scene } from 'phaser';
-import { getLeaderboard } from '../storage';
+import { GameMode, getLeaderboard } from '../storage';
 
-interface RowConfig {
-  rank: number;
-  name: string;
-  score: number;
-  isCurrent: boolean;
-  isTop3: boolean;
-}
+const MODE_LABELS: Record<GameMode, string> = {
+  normal: '普通模式排行榜',
+  word: '单词模式排行榜',
+};
 
 export class Leaderboard extends Scene {
   constructor() {
@@ -16,7 +13,9 @@ export class Leaderboard extends Scene {
 
   create() {
     const { width, height } = this.scale;
-    const currentScore = (this.scene.settings as any).data?.score ?? 0;
+    const data = (this.scene.settings as any).data ?? {};
+    const currentScore: number = data.score ?? 0;
+    const mode: GameMode = data.mode ?? 'normal';
 
     this.cameras.main.setBackgroundColor(0x0a0a2e);
 
@@ -44,19 +43,26 @@ export class Leaderboard extends Scene {
     innerBorder.setDepth(52);
 
     // 标题
-    this.add.text(panelX, panelY - panelH / 2 + 36, 'HALL OF FAME', {
-      fontFamily: 'Arial Black', fontSize: 32,
+    this.add.text(panelX, panelY - panelH / 2 + 28, 'HALL OF FAME', {
+      fontFamily: 'Arial Black', fontSize: 28,
       color: '#00eaff',
       stroke: '#003366', strokeThickness: 6,
     }).setOrigin(0.5).setDepth(100);
 
+    // 模式副标题
+    this.add.text(panelX, panelY - panelH / 2 + 58, MODE_LABELS[mode], {
+      fontFamily: 'Arial', fontSize: 18,
+      color: '#00bbdd',
+      stroke: '#001133', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(100);
+
     // 标题下划线装饰
-    const line = this.add.rectangle(panelX, panelY - panelH / 2 + 60, 260, 2, 0x00eaff, 0.5);
+    const line = this.add.rectangle(panelX, panelY - panelH / 2 + 82, 260, 2, 0x00eaff, 0.5);
     line.setDepth(100);
 
     // ---- 列表项 ----
-    const entries = getLeaderboard();
-    const listTop = panelY - panelH / 2 + 88;
+    const entries = getLeaderboard(mode);
+    const listTop = panelY - panelH / 2 + 110;
     const rowH = 58;
 
     if (entries.length === 0) {
@@ -120,7 +126,9 @@ export class Leaderboard extends Scene {
     gfx.setDepth(0);
   }
 
-  private _drawRow(x: number, y: number, w: number, h: number, cfg: RowConfig, delay: number) {
+  private _drawRow(x: number, y: number, w: number, h: number, cfg: {
+    rank: number; name: string; score: number; isCurrent: boolean; isTop3: boolean;
+  }, delay: number) {
     // 排名颜色
     const medalColors: Record<number, number> = {
       1: 0xFFD700, // 金

@@ -1,5 +1,6 @@
-import { Scene, GameObjects, Math as PMath, Physics } from 'phaser';
+import { Scene, GameObjects, Math as PMath } from 'phaser';
 import { checkRank } from '../storage';
+const MODE: 'word' = 'word';
 
 // ============================================================
 //  WordEnemy —— 带单词标签的敌机
@@ -55,8 +56,8 @@ export class WordGame extends Scene {
   // 得分 & 血量
   private score: number = 0;
   private scoreText!: GameObjects.Text;
-  private playerHp: number = 20;
-  private readonly playerMaxHp: number = 20;
+  private playerHp: number = 10;
+  private playerMaxHp: number = 10;
   private hpLabel!: GameObjects.Text;
   private hpBarBg!: GameObjects.Rectangle;
   private hpBarFill!: GameObjects.Rectangle;
@@ -66,6 +67,14 @@ export class WordGame extends Scene {
   // 输入
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private isGameOver: boolean = false;
+
+  // 难度
+  private difficulty: 'easy' | 'normal' | 'hard' = 'normal';
+  private readonly DIFFICULTY_CONFIG = {
+    easy:   { minLen: 2, maxLen: 4, minSpeed: 40, maxSpeed: 60, hp: 15, minSpawn: 3000, maxSpawn: 5000 },
+    normal: { minLen: 4, maxLen: 6, minSpeed: 60, maxSpeed: 80, hp: 10, minSpawn: 2000, maxSpawn: 4000 },
+    hard:   { minLen: 6, maxLen: 10, minSpeed: 80, maxSpeed: 120, hp: 8,  minSpawn: 1500, maxSpawn: 3000 },
+  };
 
   constructor() {
     super('WordGame');
@@ -81,13 +90,18 @@ export class WordGame extends Scene {
   create() {
     this.isGameOver = false;
 
+    // 读取难度
+    this.difficulty = (this.scene.settings as any).data?.difficulty ?? 'normal';
+    const config = this.DIFFICULTY_CONFIG[this.difficulty];
+
     // 清理上一局残留
     for (const e of this.enemies) this._destroyEnemy(e);
     this.enemies = [];
     for (const b of this.letterBullets) b.obj.destroy();
     this.letterBullets = [];
     this.score = 0;
-    this.playerHp = this.playerMaxHp;
+    this.playerMaxHp = config.hp;
+    this.playerHp = config.hp;
 
     const { width, height } = this.scale;
     this.planeY = height - 80;
@@ -97,6 +111,8 @@ export class WordGame extends Scene {
 
     // ---- 词库 ----
     this._loadWordPool();
+    // 按难度过滤词库长度
+    this.wordPool = this.wordPool.filter(w => w.length >= config.minLen && w.length <= config.maxLen);
 
     // ---- 星空背景 ----
     const starGfx = this.add.graphics();
@@ -146,7 +162,8 @@ export class WordGame extends Scene {
     }).setOrigin(0.5, 1).setDepth(20);
 
     // ---- 模式标签 ----
-    this.add.text(width / 2, 16, '单词模式', {
+    const diffLabel: Record<string, string> = { easy: '简单', normal: '中等', hard: '困难' };
+    this.add.text(width / 2, 16, '单词模式 · ' + diffLabel[this.difficulty], {
       fontFamily: 'Arial Black', fontSize: 18, color: '#00ffaa', stroke: '#003322', strokeThickness: 4,
     }).setOrigin(0.5, 0).setDepth(20);
 
@@ -169,7 +186,7 @@ export class WordGame extends Scene {
 
     // ---- 首架敌机立即生成 ----
     this._spawnEnemy();
-    this.nextSpawnDelay = PMath.Between(2000, 5000);
+    this.nextSpawnDelay = PMath.Between(config.minSpawn, config.maxSpawn);
   }
 
   // ---- 加载词库 ----
@@ -195,7 +212,8 @@ export class WordGame extends Scene {
     if (this.isGameOver) return;
     const { width } = this.scale;
     const word = this._randomWord();
-    const speed = PMath.Between(40, 100);
+    const cfg = this.DIFFICULTY_CONFIG[this.difficulty];
+    const speed = PMath.Between(cfg.minSpeed, cfg.maxSpeed);
     const x = PMath.Between(60, width - 60);
 
     // 机身
@@ -214,17 +232,26 @@ export class WordGame extends Scene {
     const totalW = (word.length - 1) * letterSpacing;
     word.split('').forEach((ch, i) => {
       const lx = -totalW / 2 + i * letterSpacing;
-      const lt = this.add.text(lx, eH / 2 + 20, ch.toUpperCase(), {
-        fontFamily: 'Arial Black',
-        fontSize: 13,
-        color: '#ffff00',
-        stroke: '#333300',
-        strokeThickness: 2,
+      const lt = this.add.text(lx, eH / 2 + 22, ch.toUpperCase(), {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        color: '#ffff44',
+        stroke: '#000000',
+        strokeThickness: 3,
       }).setOrigin(0.5, 0);
       letterTexts.push(lt);
     });
 
-    const container = this.add.container(x, -40, [body, nose, wingL, wingR, tail, ...letterTexts]);
+    // 字母背景条：半透明黑色圆角条，让字母在任意背景下都清晰
+    const barW = word.length * 14 + 6;
+    const barH = 18;
+    const barX = -barW / 2;
+    const barY = eH / 2 + 18;
+    const bgBar = this.add.graphics();
+    bgBar.fillStyle(0x000000, 0.5);
+    bgBar.fillRoundedRect(barX, barY, barW, barH, 3);
+
+    const container = this.add.container(x, -40, [body, nose, wingL, wingR, tail, bgBar, ...letterTexts]);
     container.setDepth(8);
 
     // 当前需要击中的第一个字母高亮
@@ -249,16 +276,14 @@ export class WordGame extends Scene {
   private _highlightLetter(texts: GameObjects.Text[], idx: number) {
     texts.forEach((t, i) => {
       if (i < idx) {
-        // 已击中：灰色
-        t.setStyle({ color: '#555566', stroke: '#000000', strokeThickness: 1 });
+        // 已击中：暗灰色
+        t.setStyle({ fontFamily: 'Arial', fontSize: 18, color: '#555566', stroke: '#000000', strokeThickness: 3 });
       } else if (i === idx) {
-        // 当前目标：亮黄色，放大
-        t.setStyle({ color: '#ffee00', stroke: '#886600', strokeThickness: 3 });
-        t.setFontSize(15);
+        // 当前目标：亮黄橙色，加粗感
+        t.setStyle({ fontFamily: 'Arial Black', fontSize: 20, color: '#ffee00', stroke: '#884400', strokeThickness: 3 });
       } else {
-        // 未到：白色
-        t.setStyle({ color: '#ffffff', stroke: '#333333', strokeThickness: 2 });
-        t.setFontSize(13);
+        // 未到：亮白色
+        t.setStyle({ fontFamily: 'Arial', fontSize: 18, color: '#ffffff', stroke: '#000000', strokeThickness: 3 });
       }
     });
   }
@@ -280,23 +305,6 @@ export class WordGame extends Scene {
     }).setOrigin(0.5).setDepth(11);
 
     this.letterBullets.push({ obj, letter, active: true, prevY: by });
-  }
-
-  // ---- 判断线段 AB（子弹）和矩形是否相交（用于扫描碰撞）----
-  // 返回 true 如果子弹从 prevY 移动到 curY 的过程中经过了机身矩形
-  private _segmentHitsRect(bx: number, prevY: number, curY: number, ex: number, ey: number, hw: number, hh: number): boolean {
-    // 子弹水平位置在机身水平范围内
-    if (Math.abs(bx - ex) > hw) return false;
-
-    const top = ey - hh;       // 机身顶边
-    const bottom = ey + hh;     // 机身底边
-
-    // 子弹当前位置和上一帧位置
-    const bTop = Math.min(prevY, curY);
-    const bBottom = Math.max(prevY, curY);
-
-    // AABB 包围盒检测：两个线段在 Y 轴上有重叠
-    return bBottom >= top && bTop <= bottom;
   }
 
   // ---- 碰撞检测：扫描式碰撞 ----
@@ -427,11 +435,11 @@ export class WordGame extends Scene {
     this.isGameOver = true;
 
     this.scene.stop('GameOver');
-    const rank = checkRank(this.score);
+    const rank = checkRank(this.score, MODE);
     if (rank !== null) {
-      this.scene.start('NameEntry', { score: this.score, rank });
+      this.scene.start('NameEntry', { score: this.score, rank, mode: MODE });
     } else {
-      this.scene.start('Leaderboard', { score: this.score });
+      this.scene.start('Leaderboard', { score: this.score, mode: MODE });
     }
   }
 
@@ -467,7 +475,8 @@ export class WordGame extends Scene {
     this.nextSpawnDelay -= delta;
     if (this.nextSpawnDelay <= 0) {
       this._spawnEnemy();
-      this.nextSpawnDelay = PMath.Between(2000, 5000);
+      const cfg = this.DIFFICULTY_CONFIG[this.difficulty];
+      this.nextSpawnDelay = PMath.Between(cfg.minSpawn, cfg.maxSpawn);
     }
 
     // 敌机移动 & 出界，同时记录上一帧位置

@@ -1,8 +1,18 @@
 // ============================================================
 //  得分存储工具 —— localStorage 持久化 Top 5 排行榜
+//  两个模式各有一份独立排行榜
 // ============================================================
 
-const STORAGE_KEY = 'plane_game_scores';
+export type GameMode = 'normal' | 'word';
+
+const STORAGE_KEYS: Record<GameMode, string> = {
+  normal: 'plane_game_scores',
+  word: 'plane_game_scores_word',
+};
+
+function getKey(mode: GameMode): string {
+  return STORAGE_KEYS[mode];
+}
 
 export interface ScoreEntry {
   name: string;
@@ -11,10 +21,10 @@ export interface ScoreEntry {
   time: number;
 }
 
-/** 获取排行榜（最多5条，按分数降序） */
-export function getLeaderboard(): ScoreEntry[] {
+/** 获取指定模式的排行榜（最多5条，按分数降序） */
+export function getLeaderboard(mode: GameMode): ScoreEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getKey(mode));
     if (!raw) return [];
     const arr: ScoreEntry[] = JSON.parse(raw);
     return arr.sort((a, b) => b.score - a.score).slice(0, 5);
@@ -24,11 +34,11 @@ export function getLeaderboard(): ScoreEntry[] {
 }
 
 /**
- * 检查分数是否能进入前5（不写入）。
+ * 检查分数是否能进入指定模式前5（不写入）。
  * @returns 排名（1-based），如果不在前5则返回 null。
  */
-export function checkRank(score: number): number | null {
-  const arr = getLeaderboard();
+export function checkRank(score: number, mode: GameMode): number | null {
+  const arr = getLeaderboard(mode);
   if (arr.length < 5) return arr.length + 1;
   const minScore = Math.min(...arr.map(e => e.score));
   if (score > minScore) {
@@ -43,8 +53,8 @@ export function checkRank(score: number): number | null {
  * 尝试插入新得分。
  * @returns 排名（1-based），如果不在前5则返回 null。
  */
-export function tryInsertScore(name: string, score: number): number | null {
-  const arr = getLeaderboard();
+export function tryInsertScore(name: string, score: number, mode: GameMode): number | null {
+  const arr = getLeaderboard(mode);
   const entry: ScoreEntry = { name, score, time: Date.now() };
 
   if (arr.length < 5) {
@@ -60,7 +70,7 @@ export function tryInsertScore(name: string, score: number): number | null {
   }
   // 重新排序并保存
   const ranked = arr.sort((a, b) => b.score - a.score);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ranked));
+  localStorage.setItem(getKey(mode), JSON.stringify(ranked));
   // 查找刚插入条目的排名
   return ranked.findIndex(e => e.time === entry.time) + 1;
 }
